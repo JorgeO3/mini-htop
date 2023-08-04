@@ -9,16 +9,14 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::stream::Stream;
+use futures_util::{stream::Stream, StreamExt};
 use sysinfo::{CpuExt, System, SystemExt};
-use tokio::sync::{
-    watch::{Receiver, Sender},
-    Mutex,
-};
+use tokio::sync::watch::{Receiver, Sender};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tower_http::services::ServeDir;
 
-type SharedReceiver = Arc<Mutex<Receiver<String>>>;
-type SharedSender = Arc<Mutex<Sender<String>>>;
+type SharedReceiver = Arc<Receiver<String>>;
+type SharedSender = Arc<Sender<String>>;
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
@@ -30,11 +28,24 @@ struct Broadcast {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = tokio::sync::watch::channel(String::from("initial"));
-    let tx = Arc::new(Mutex::new(tx));
-    let rx = Arc::new(Mutex::new(rx));
+    let tx = Arc::new(tx);
+    let rx = Arc::new(rx);
 
-    let api_state = Broadcast { tx, rx };
-    sever(api_state).await
+    sever(Broadcast { tx, rx }).await;
+    Ok(())
+}
+
+async fn sever(state: Broadcast) {
+    let router = Router::new()
+        .nest_service("/", ServeDir::new("statics"))
+        .route("/sse", get(sse_handler))
+        .with_state(state);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    axum::Server::bind(&addr)
+        .serve(router.into_make_service())
+        .await
+        .unwrap();
 }
 
 async fn cpu_monitor(tx: SharedSender) {
@@ -44,7 +55,6 @@ async fn cpu_monitor(tx: SharedSender) {
 
     loop {
         sys.refresh_cpu();
-
         let cpu_info = sys
             .cpus()
             .iter()
@@ -52,24 +62,16 @@ async fn cpu_monitor(tx: SharedSender) {
             .map(|(i, cpu)| format!("Cpu {}: {:.2} \n", i, cpu.cpu_usage()))
             .collect::<String>();
 
-        tx.lock().await.send(cpu_info).unwrap();
+        if let Err(e) = tx.send(cpu_info) {
+            eprintln!("{}", e);
+            break;
+        }
+
+        if tx.is_closed() {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-}
-
-async fn sever(state: Broadcast) -> Result<(), Box<dyn std::error::Error>> {
-    let router = Router::new()
-        .nest_service("/", ServeDir::new("statics"))
-        .route("/sse", get(sse_handler))
-        .with_state(state);
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-
-    axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .await?;
-
-    Ok(())
 }
 
 async fn sse_handler(
@@ -78,17 +80,41 @@ async fn sse_handler(
     let rx = state.rx;
     let tx = state.tx;
 
-    let _cpu_monitor_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         cpu_monitor(tx).await;
     });
 
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let shutdown_receiver = UnboundedReceiverStream::new(shutdown_receiver);
+
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        shutdown_sender.send(()).unwrap();
+    });
+
+    let mut shutdown_received = false;
+
     let stream = try_stream! {
+        tokio::pin!(shutdown_receiver);
+
         loop {
-            let receiver = rx.lock().await;
-            let value = receiver.borrow().to_string();
-            yield Event::default().data(value);
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if shutdown_received {
+                break;
+            }
+
+            tokio::select! {
+                _ = shutdown_receiver.next() => {
+                    println!("Received shutdown signal");
+                    shutdown_received = true;
+                    yield Event::default().event("shutdown");
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    let val = rx.borrow().clone();
+                    yield Event::default().data(val);
+                }
+            }
         }
     };
-    Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+
+    Sse::new(stream)
 }
