@@ -18,15 +18,19 @@
     <script>
         const evtSource = new EventSource("sse");
 
-        evtSource.addEventListener("shutdown", () => {
-            console.log("closing");
+        const closeSseConnection = () => {
             evtSource.close();
-        });
+        }
 
         evtSource.onmessage = ({ data }) => {
             console.log(data);
         }
     </script>
+
+    <div>
+        <button type="button" onclick="closeSseConnection()">close connection</button>
+    </div>
+
 </body>
 
 </html>

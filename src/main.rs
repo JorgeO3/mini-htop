@@ -1,5 +1,3 @@
-// #![allow(unused)]
-
 use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
@@ -9,10 +7,12 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::{stream::Stream, StreamExt};
+use futures_util::stream::Stream;
 use sysinfo::{CpuExt, System, SystemExt};
-use tokio::sync::watch::{Receiver, Sender};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::{
+    sync::watch::{Receiver, Sender},
+    task::JoinHandle,
+};
 use tower_http::services::ServeDir;
 
 type SharedReceiver = Arc<Receiver<String>>;
@@ -67,10 +67,15 @@ async fn cpu_monitor(tx: SharedSender) {
             break;
         }
 
-        if tx.is_closed() {
-            break;
-        }
+        println!("dentro del cpu");
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+}
+
+struct ChannelGuard(JoinHandle<()>);
+impl Drop for ChannelGuard {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -80,41 +85,19 @@ async fn sse_handler(
     let rx = state.rx;
     let tx = state.tx;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         cpu_monitor(tx).await;
     });
 
-    let (shutdown_sender, shutdown_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let shutdown_receiver = UnboundedReceiverStream::new(shutdown_receiver);
-
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.unwrap();
-        shutdown_sender.send(()).unwrap();
-    });
-
-    let mut shutdown_received = false;
-
     let stream = try_stream! {
-        tokio::pin!(shutdown_receiver);
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
+        let _guard = ChannelGuard(handle);
 
         loop {
-            if shutdown_received {
-                break;
-            }
-
-            tokio::select! {
-                _ = shutdown_receiver.next() => {
-                    println!("Received shutdown signal");
-                    shutdown_received = true;
-                    yield Event::default().event("shutdown");
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                    let val = rx.borrow().clone();
-                    yield Event::default().data(val);
-                }
-            }
+            let cpu_info = rx.borrow().to_string();
+            yield Event::default().data(cpu_info);
+            interval.tick().await;
         }
     };
-
     Sse::new(stream)
 }
