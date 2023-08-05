@@ -1,17 +1,18 @@
-use std::{convert::Infallible, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
 
 use async_stream::try_stream;
 use axum::{
     extract::State,
-    response::{sse::Event, Sse},
+    response::sse::{Event, Sse},
     routing::get,
     Router,
 };
 use futures_util::stream::Stream;
 use sysinfo::{CpuExt, System, SystemExt};
 use tokio::{
-    sync::watch::{Receiver, Sender},
+    sync::watch::{self, Receiver, Sender},
     task::JoinHandle,
+    time::{interval, sleep, Interval},
 };
 use tower_http::services::ServeDir;
 
@@ -24,18 +25,31 @@ struct Broadcast {
     tx: SharedSender,
     rx: SharedReceiver,
 }
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (tx, rx) = tokio::sync::watch::channel(String::from("initial"));
-    let tx = Arc::new(tx);
-    let rx = Arc::new(rx);
-
-    sever(Broadcast { tx, rx }).await;
-    Ok(())
+impl Broadcast {
+    fn new(initial_message: impl Into<String>) -> Self {
+        let (tx, rx) = watch::channel(initial_message.into());
+        Self {
+            tx: Arc::new(tx),
+            rx: Arc::new(rx),
+        }
+    }
 }
 
-async fn sever(state: Broadcast) {
+struct ChannelGuard(JoinHandle<()>);
+impl Drop for ChannelGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    if let Err(e) = server(Broadcast::new("none")).await {
+        eprintln!("{}", e)
+    };
+}
+
+async fn server(state: Broadcast) -> Result<(), Box<dyn std::error::Error>> {
     let router = Router::new()
         .nest_service("/", ServeDir::new("statics"))
         .route("/sse", get(sse_handler))
@@ -45,13 +59,13 @@ async fn sever(state: Broadcast) {
     axum::Server::bind(&addr)
         .serve(router.into_make_service())
         .await
-        .unwrap();
+        .map_err(Into::into)
 }
 
-async fn cpu_monitor(tx: SharedSender) {
+async fn monitor_cpu(tx: SharedSender, mut interval: Interval) {
     let mut sys = System::new();
     sys.refresh_cpu();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(200)).await;
 
     loop {
         sys.refresh_cpu();
@@ -63,19 +77,11 @@ async fn cpu_monitor(tx: SharedSender) {
             .collect::<String>();
 
         if let Err(e) = tx.send(cpu_info) {
-            eprintln!("{}", e);
+            println!("{}", e);
             break;
         }
 
-        println!("dentro del cpu");
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-}
-
-struct ChannelGuard(JoinHandle<()>);
-impl Drop for ChannelGuard {
-    fn drop(&mut self) {
-        self.0.abort();
+        interval.tick().await;
     }
 }
 
@@ -85,17 +91,17 @@ async fn sse_handler(
     let rx = state.rx;
     let tx = state.tx;
 
-    let handle = tokio::spawn(async move {
-        cpu_monitor(tx).await;
+    let monitor_cpu_handle = tokio::spawn(async move {
+        monitor_cpu(tx, interval(Duration::from_millis(500))).await;
     });
 
     let stream = try_stream! {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
-        let _guard = ChannelGuard(handle);
+        let mut interval = interval(Duration::from_millis(1000));
+        let _guard = ChannelGuard(monitor_cpu_handle);
 
         loop {
-            let cpu_info = rx.borrow().to_string();
-            yield Event::default().data(cpu_info);
+            let message = rx.borrow().to_string();
+            yield Event::default().data(message);
             interval.tick().await;
         }
     };
