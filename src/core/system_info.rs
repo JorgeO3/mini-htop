@@ -13,7 +13,7 @@ pub struct ProcessInfo {
     cpu_usage: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NetworkData {
     total_rx: f32,
     rx_per_second: f32,
@@ -24,13 +24,13 @@ pub struct NetworkData {
 #[derive(Debug, Default)]
 pub struct DiskUsageData {
     name: String,
-    used_percentage: f32,
-    free_gb: f32,
+    used_space: f32,
+    free_space: f32,
 }
 
 #[derive(Debug, Default)]
-pub struct TemperatureData {
-    component: String,
+pub struct ComponentTemperature {
+    label: String,
     temperature: f32,
 }
 
@@ -40,9 +40,9 @@ pub struct SystemResources {
     disk_usage: Vec<DiskUsageData>,
     ram_memory_usage: f32,
     swap_memory_usage: f32,
-    component_temperature: Vec<TemperatureData>,
-    netowork_usage: Vec<NetworkData>,
-    process: Vec<ProcessInfo>,
+    component_temperature: Vec<ComponentTemperature>,
+    network_usage: NetworkData,
+    process_list: Vec<ProcessInfo>,
 }
 
 pub struct SystemInfo {
@@ -62,7 +62,9 @@ impl SystemInfo {
         let disk_usage = self.get_disk_usage();
         let ram_memory_usage = self.get_ram_memory_usage();
         let swap_memory_usage = self.get_swap_memory_usage();
-        let component_temperature = self.get_temperatures_usage();
+        let component_temperature = self.get_temperatures();
+        let network_usage = self.get_network_usage();
+        let process_list = self.get_process_list();
 
         SystemResources {
             cpu_usage,
@@ -70,8 +72,8 @@ impl SystemInfo {
             ram_memory_usage,
             swap_memory_usage,
             component_temperature,
-            netowork_usage: todo!(),
-            process: todo!(),
+            network_usage,
+            process_list,
         }
     }
 
@@ -83,18 +85,21 @@ impl SystemInfo {
         (usage / num_cpus) * 100.0
     }
 
-    fn get_disk_usage(&self) -> Vec<(String, f32, f32)> {
+    fn get_disk_usage(&self) -> Vec<DiskUsageData> {
         let mut disk_info = Vec::new();
 
         for disk_usage in self.sysinfo.disks() {
             let total_space = disk_usage.total_space() as f32;
-            let available_space = disk_usage.available_space() as f32;
-            let used_space = ((total_space - available_space) / total_space) * 100.0;
+            let fre_space = disk_usage.available_space() as f32;
+            let used_space = ((total_space - fre_space) / total_space) * 100.0;
             let name = disk_usage.name().to_str().unwrap().to_string();
-            disk_info.push((name, used_space, (available_space / GB as f32)))
-        }
 
-        // Vec<(String, f32, f32) = Name, usage [%], free [GB]
+            disk_info.push(DiskUsageData {
+                name,
+                used_space,
+                free_space: fre_space / GB as f32,
+            });
+        }
         disk_info
     }
 
@@ -113,15 +118,16 @@ impl SystemInfo {
         // the retourned value is a percentaje
         (used_swap / total_swap) * 100.0
     }
-    fn get_temperatures_usage(&self) -> Vec<(String, f32)> {
-        let cpu_info = self
-            .sysinfo
-            .components()
-            .iter()
-            .map(|component| (component.label().into(), component.temperature()))
-            .collect();
+    fn get_temperatures(&self) -> Vec<ComponentTemperature> {
+        let mut temperatures = Vec::new();
 
-        cpu_info
+        for component in self.sysinfo.components() {
+            let label = component.label().into();
+            let temperature = component.temperature();
+            temperatures.push(ComponentTemperature { label, temperature });
+        }
+
+        temperatures
     }
 
     fn get_network_usage(&self) -> NetworkData {
