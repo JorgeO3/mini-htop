@@ -150,7 +150,7 @@ impl SystemInfo {
         let mut process_list = Vec::new();
 
         for (pid, process) in self.sysinfo.processes() {
-            let pid = pid.clone();
+            let pid = *pid;
             let name = process.name().into();
             let memory_usage = process.memory() as f32;
             let cpu_usage = process.cpu_usage();
