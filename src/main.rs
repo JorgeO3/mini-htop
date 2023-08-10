@@ -9,15 +9,15 @@ pub mod system_info;
 pub mod ui;
 pub mod utils;
 
-/// Simple program to greet a person
+/// Minitop: A User-Friendly Top Monitor for Process Viewing
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Name of the person to greet
+    /// time in ms between two ticks.
     #[arg(short, long, default_value_t = 250)]
     tick_rate: u64,
 
-    /// Number of times to greet
+    /// whether unicode symbols are used to improve the overall look of the app
     #[arg(short, long, default_value_t = true)]
     enhanced_graphics: bool,
 }

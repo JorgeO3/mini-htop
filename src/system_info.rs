@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use super::utils::GB;
 use sysinfo::{
     ComponentExt, CpuExt, DiskExt, NetworkExt, NetworksExt, Pid, ProcessExt, System, SystemExt,
