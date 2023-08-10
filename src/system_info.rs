@@ -135,8 +135,8 @@ impl SystemInfo {
             .sysinfo
             .networks()
             .iter()
-            .find(|network| network.0 == &String::from("lo"))
-            .expect("the lo interface is not in the system");
+            .find(|network| network.0.starts_with('e'))
+            .expect("this system don't implement a ethernet interface");
 
         NetworkData {
             total_rx: network_data.total_received() as f32,
@@ -162,7 +162,6 @@ impl SystemInfo {
                 cpu_usage,
             });
         }
-
         process_list
     }
 }
