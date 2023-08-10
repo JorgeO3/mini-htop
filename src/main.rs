@@ -1,7 +1,10 @@
 use clap::Parser;
+use prelude::*;
 use std::time::Duration;
 
 pub mod backend;
+pub mod error;
+pub mod prelude;
 pub mod system_info;
 pub mod ui;
 pub mod utils;
@@ -9,7 +12,7 @@ pub mod utils;
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+struct Cli {
     /// Name of the person to greet
     #[arg(short, long, default_value_t = 250)]
     tick_rate: u64,
@@ -19,8 +22,11 @@ struct Args {
     enhanced_graphics: bool,
 }
 
-fn main() {
-    let args = Args::parse();
+fn main() -> Result<()> {
+    let cli = Cli::parse();
 
-    let tick_rate = Duration::from_millis(args.tick_rate);
+    let tick_rate = Duration::from_millis(cli.tick_rate);
+    crate::backend::run(tick_rate, cli.enhanced_graphics)?;
+
+    Ok(())
 }

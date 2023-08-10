@@ -1,6 +1,11 @@
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+#![allow(unused)]
+
+use crate::prelude::*;
+use std::time::Duration;
+
+pub fn run(duration: Duration, enhanced_graphics: bool) -> Result<()> {
     Ok(())
 }
-pub fn run_app() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_app() -> Result<()> {
     Ok(())
 }
