@@ -31,8 +31,7 @@ pub fn draw_cpu_graph<B>(f: &mut Frame<B>, sys: &SystemInfo, area: Rect)
 where
     B: Backend,
 {
-    let cpu = [sys.sys_resources.as_ref().unwrap().cpu_usage];
-
+    let cpu = sys.sys_resources.cpu_usage.get_values();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(100)].as_ref())
