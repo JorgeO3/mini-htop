@@ -11,6 +11,7 @@ use crate::system_info::SystemInfo;
 
 pub fn draw<B: Backend>(f: &mut Frame<B>, sys: &SystemInfo) {
     let chunks = Layout::default()
+        .direction(Direction::Vertical)
         .constraints(
             [
                 Constraint::Ratio(1, 3),
@@ -35,7 +36,7 @@ where
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(100)].as_ref())
-        .split(f.size());
+        .split(area);
 
     let sparkline = Sparkline::default()
         .block(

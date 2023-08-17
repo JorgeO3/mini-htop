@@ -1,10 +1,10 @@
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::{System, SystemExt};
 
 use crate::prelude::*;
@@ -48,9 +48,25 @@ pub fn start_monitor<B>(
 where
     B: Backend,
 {
+    let mut last_tick = Instant::now();
     loop {
-        sys.update_info();
         terminal.draw(|f| ui::draw(f, &sys))?;
-        std::thread::sleep(tick_rate);
+
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        if crossterm::event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if let KeyCode::Char('q') = key.code {
+                    return Ok(());
+                }
+            }
+        }
+
+        if last_tick.elapsed() >= tick_rate {
+            sys.update_info();
+            last_tick = Instant::now();
+        }
     }
 }
