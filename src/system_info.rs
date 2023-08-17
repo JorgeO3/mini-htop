@@ -4,58 +4,70 @@ use sysinfo::{
 };
 
 #[derive(Debug)]
+pub struct CustomPid(Pid);
+impl Clone for CustomPid {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ProcessInfo {
-    pid: Pid,
-    name: String,
-    memory_usage: f32,
-    cpu_usage: f32,
+    pub pid: CustomPid,
+    pub name: String,
+    pub memory_usage: f32,
+    pub cpu_usage: f32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct NetworkData {
-    total_rx: f32,
-    rx_per_second: f32,
-    total_tx: f32,
-    tx_per_second: f32,
+    pub total_rx: f32,
+    pub rx_per_second: f32,
+    pub total_tx: f32,
+    pub tx_per_second: f32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DiskUsageData {
-    name: String,
-    used_space: f32,
-    free_space: f32,
+    pub name: String,
+    pub used_space: f32,
+    pub free_space: f32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ComponentTemperature {
-    label: String,
-    temperature: f32,
+    pub label: String,
+    pub temperature: f32,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct SystemResources {
-    cpu_usage: f32,
-    disk_usage: Vec<DiskUsageData>,
-    ram_memory_usage: f32,
-    swap_memory_usage: f32,
-    component_temperature: Vec<ComponentTemperature>,
-    network_usage: NetworkData,
-    process_list: Vec<ProcessInfo>,
+    pub cpu_usage: u64,
+    pub disk_usage: Vec<DiskUsageData>,
+    pub ram_memory_usage: f32,
+    pub swap_memory_usage: f32,
+    pub component_temperature: Vec<ComponentTemperature>,
+    pub network_usage: NetworkData,
+    pub process_list: Vec<ProcessInfo>,
 }
 
 pub struct SystemInfo {
-    sys_resources: Option<SystemResources>,
-    sysinfo: System,
+    pub sys_resources: Option<SystemResources>,
+    pub sysinfo: System,
+    pub enhanced_graphics: bool,
 }
 impl SystemInfo {
-    pub fn new(sys: System) -> Self {
+    pub fn new(mut sys: System, enhanced_graphics: bool) -> Self {
+        sys.refresh_all();
         Self {
             sys_resources: None,
             sysinfo: sys,
+            enhanced_graphics,
         }
     }
 
-    pub fn get_info(&self) -> SystemResources {
+    pub fn update_info(&mut self) {
+        self.sysinfo.refresh_all();
         let cpu_usage = self.get_cpu_usage();
         let disk_usage = self.get_disk_usage();
         let ram_memory_usage = self.get_ram_memory_usage();
@@ -64,7 +76,7 @@ impl SystemInfo {
         let network_usage = self.get_network_usage();
         let process_list = self.get_process_list();
 
-        SystemResources {
+        self.sys_resources = Some(SystemResources {
             cpu_usage,
             disk_usage,
             ram_memory_usage,
@@ -72,15 +84,15 @@ impl SystemInfo {
             component_temperature,
             network_usage,
             process_list,
-        }
+        });
     }
 
-    fn get_cpu_usage(&self) -> f32 {
+    fn get_cpu_usage(&self) -> u64 {
         let cpus = self.sysinfo.cpus();
-        let num_cpus = cpus.len() as f32;
-        let usage = cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>();
+        let num_cpus = cpus.len() as u64;
+        let usage = cpus.iter().map(|cpu| cpu.cpu_usage() as u64).sum::<u64>();
 
-        (usage / num_cpus) * 100.0
+        (usage / num_cpus) * 100
     }
 
     fn get_disk_usage(&self) -> Vec<DiskUsageData> {
@@ -148,7 +160,7 @@ impl SystemInfo {
         let mut process_list = Vec::new();
 
         for (pid, process) in self.sysinfo.processes() {
-            let pid = *pid;
+            let pid = CustomPid(*pid);
             let name = process.name().into();
             let memory_usage = process.memory() as f32;
             let cpu_usage = process.cpu_usage();

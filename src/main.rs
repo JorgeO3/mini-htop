@@ -14,7 +14,7 @@ pub mod utils;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// time in ms between two ticks.
-    #[arg(short, long, default_value_t = 250)]
+    #[arg(short, long, default_value_t = 1000)]
     tick_rate: u64,
 
     /// whether unicode symbols are used to improve the overall look of the app
@@ -23,10 +23,12 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let Cli {
+        tick_rate,
+        enhanced_graphics,
+    } = Cli::parse();
 
-    let tick_rate = Duration::from_millis(cli.tick_rate);
-    crate::backend::run(tick_rate, cli.enhanced_graphics)?;
-
+    let tick_rate = Duration::from_millis(tick_rate);
+    crate::backend::run(tick_rate, enhanced_graphics)?;
     Ok(())
 }

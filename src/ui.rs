@@ -7,9 +7,9 @@
 
 use ratatui::{prelude::*, widgets::*};
 
-use crate::system_info::SystemResources;
+use crate::system_info::SystemInfo;
 
-pub fn draw<B: Backend>(f: &mut Frame<B>, sys: &mut SystemResources) {
+pub fn draw<B: Backend>(f: &mut Frame<B>, sys: &SystemInfo) {
     let chunks = Layout::default()
         .constraints(
             [
@@ -27,10 +27,12 @@ pub fn draw<B: Backend>(f: &mut Frame<B>, sys: &mut SystemResources) {
 }
 
 // first block
-pub fn draw_cpu_graph<B>(f: &mut Frame<B>, sys: &mut SystemResources, area: Rect)
+pub fn draw_cpu_graph<B>(f: &mut Frame<B>, sys: &SystemInfo, area: Rect)
 where
     B: Backend,
 {
+    let cpu = [sys.sys_resources.as_ref().unwrap().cpu_usage];
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(100)].as_ref())
@@ -46,21 +48,17 @@ where
                 .border_style(Style::default().fg(Color::Rgb(255, 255, 255))),
         )
         .style(Style::default().fg(Color::Rgb(255, 255, 255)))
-        .data(&[
-            0, 5, 1, 6, 2, 10, 23, 49, 0, 5, 1, 6, 2, 10, 23, 49, 0, 5, 1, 6, 2, 10, 23, 49, 0, 5,
-            1, 6, 2, 10, 23, 49,
-        ])
+        .data(&cpu)
         .bar_set(symbols::bar::NINE_LEVELS);
-
-    f.render_widget(sparkline, chunks[0])
+    f.render_widget(sparkline, chunks[0]);
 }
 
 // second block
-pub fn draw_system_stats<B>(f: &mut Frame<B>, sys: &mut SystemResources, area: Rect)
+pub fn draw_system_stats<B>(f: &mut Frame<B>, sys: &SystemInfo, area: Rect)
 where
     B: Backend,
 {
-    let chuncks = Layout::default()
+    let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
         .split(area);
@@ -68,9 +66,9 @@ where
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Ratio(1, 5), Constraint::Ratio(1, 5)])
-        .split(chuncks[0]);
+        .split(chunks[0]);
 
-    draw_memory_usage(f, chuncks[1]);
+    draw_memory_usage(f, chunks[1]);
     draw_disk_usage(f, vertical_chunks[0]);
     draw_components_temps(f, vertical_chunks[1]);
 }
@@ -119,7 +117,7 @@ pub fn draw_network_usage() {}
 pub fn draw_list_process() {}
 
 // network and process
-pub fn draw_network_and_processes<B>(f: &mut Frame<B>, sys: &mut SystemResources, area: Rect)
+pub fn draw_network_and_processes<B>(f: &mut Frame<B>, sys: &SystemInfo, area: Rect)
 where
     B: Backend,
 {
