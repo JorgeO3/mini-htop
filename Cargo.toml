@@ -14,3 +14,6 @@ thiserror = "1.0.44"
 
 [dev-dependencies]
 anyhow = "1.0.72"
+
+[profile.release]
+debug = true

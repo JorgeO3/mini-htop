@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
 use super::utils::GB;
-use sysinfo::{
-    ComponentExt, CpuExt, DiskExt, NetworkExt, NetworksExt, Pid, ProcessExt, System, SystemExt,
-};
+use sysinfo::{ComponentExt, CpuExt, DiskExt, NetworkExt, NetworksExt};
+use sysinfo::{Pid, ProcessExt, System, SystemExt};
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -58,11 +57,20 @@ where
 
     pub fn get_values(&self) -> Vec<T> {
         let (slice1, slice2) = self.history.as_slices();
+        slice1.iter().chain(slice2).cloned().collect()
+    }
+
+    pub fn get_values_with_index(&self) -> Vec<(f64, T)>
+    where
+        T: Copy,
+    {
+        let (slice1, slice2) = self.history.as_slices();
         slice1
             .iter()
-            .chain(slice2.iter())
-            .cloned()
-            .collect::<Vec<_>>()
+            .chain(slice2)
+            .enumerate()
+            .map(|(i, value)| (i as f64, *value))
+            .collect()
     }
 }
 
@@ -70,8 +78,8 @@ where
 pub struct SystemResources {
     pub cpu_usage: HistoricalMetric<u64>,
     pub disk_usage: Vec<DiskUsageData>,
-    pub ram_memory_usage: HistoricalMetric<u64>,
-    pub swap_memory_usage: HistoricalMetric<u64>,
+    pub ram_memory_usage: HistoricalMetric<f64>,
+    pub swap_memory_usage: HistoricalMetric<f64>,
     pub component_temperature: Vec<(String, f32)>,
     pub network_usage: HistoricalMetric<NetworkData>,
     pub process_list: Vec<ProcessInfo>,
@@ -86,12 +94,12 @@ impl SystemInfo {
     pub fn new(mut sys: System, enhanced_graphics: bool) -> Self {
         sys.refresh_all();
 
-        let cpu_usage = HistoricalMetric::new(0u64, 100);
+        let cpu_usage = HistoricalMetric::new(0u64, 200);
         let disk_usage = Vec::new();
-        let ram_memory_usage = HistoricalMetric::new(0u64, 100);
-        let swap_memory_usage = HistoricalMetric::new(0u64, 100);
+        let ram_memory_usage = HistoricalMetric::new(0f64, 200);
+        let swap_memory_usage = HistoricalMetric::new(0f64, 200);
         let component_temperature = Vec::new();
-        let network_usage = HistoricalMetric::new(NetworkData::default(), 100);
+        let network_usage = HistoricalMetric::new(NetworkData::default(), 200);
         let process_list = Vec::new();
 
         let sys_resources = SystemResources {
@@ -132,9 +140,10 @@ impl SystemInfo {
     }
 
     fn update_disk_usage(&mut self) {
-        let mut disk_info = Vec::new();
+        let disks = self.sysinfo.disks();
+        let mut disk_info = Vec::with_capacity(disks.len());
 
-        for disk_usage in self.sysinfo.disks() {
+        for disk_usage in disks {
             let total_space = disk_usage.total_space() as f32;
             let fre_space = disk_usage.available_space() as f32;
             let used_space = ((total_space - fre_space) / total_space) * 100.0;
@@ -150,29 +159,30 @@ impl SystemInfo {
     }
 
     fn update_ram_memory_usage(&mut self) {
-        let total_memory = self.sysinfo.total_memory();
-        let used_memory = self.sysinfo.used_memory();
-        let current_usage = (used_memory / total_memory) * 100;
+        let total_memory = self.sysinfo.total_memory() as f64;
+        let used_memory = self.sysinfo.used_memory() as f64;
+        let normalized_usage = self.normalize(used_memory, total_memory);
 
-        self.sys_resources.ram_memory_usage.update(current_usage);
+        self.sys_resources.ram_memory_usage.update(normalized_usage);
     }
 
     fn update_swap_memory_usage(&mut self) {
-        let total_swap = self.sysinfo.total_swap();
-        let used_swap = self.sysinfo.used_swap();
-        let current_usage = (used_swap / total_swap) * 100;
+        let total_swap = self.sysinfo.total_swap() as f64;
+        let used_swap = self.sysinfo.used_swap() as f64;
+        let normalized_usage = self.normalize(used_swap, total_swap);
 
-        self.sys_resources.swap_memory_usage.update(current_usage);
+        self.sys_resources
+            .swap_memory_usage
+            .update(normalized_usage);
     }
 
     fn update_temperatures(&mut self) {
-        let mut temperatures = Vec::new();
-
-        for component in self.sysinfo.components() {
-            let label = component.label().into();
-            let temperature = component.temperature();
-            temperatures.push((label, temperature));
-        }
+        let temperatures: Vec<_> = self
+            .sysinfo
+            .components()
+            .iter()
+            .map(|cmpnt| (cmpnt.label().into(), cmpnt.temperature()))
+            .collect();
         self.sys_resources.component_temperature = temperatures;
     }
 
@@ -195,8 +205,10 @@ impl SystemInfo {
     }
 
     fn update_process_list(&mut self) {
-        let mut process_list = Vec::new();
-        for (pid, process) in self.sysinfo.processes() {
+        let processes = self.sysinfo.processes();
+        let mut process_list = Vec::with_capacity(processes.len());
+
+        for (pid, process) in processes {
             let pid = *pid;
             let name = process.name().into();
             let memory_usage = process.memory() as f32;
@@ -210,5 +222,13 @@ impl SystemInfo {
             });
         }
         self.sys_resources.process_list = process_list;
+    }
+
+    fn normalize(&self, value: f64, total: f64) -> f64 {
+        match value / total {
+            x if x <= 0.0 => 10.0,
+            x if x >= 1.0 => 100.0,
+            x => (x * 100.0).ceil(),
+        }
     }
 }
